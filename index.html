@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Contlas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/atlas-data.js"></script>
+<link rel="stylesheet" href="css/contlas.css" />
+</head>
+<body>
+
+<section class="stage">
+  <header>
+    <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+      <h1>Contlas</h1>
+      <div class="eyebrow">Everyone, placed</div>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+  <div id="globeWrap"><svg id="globe"></svg></div>
+  <footer>
+    <div class="legend">
+      <span class="k"><i class="swatch" style="background:var(--ochre)"></i> Spoke recently</span>
+      <span class="k"><i class="swatch" style="background:var(--ochre);opacity:.26"></i> Going cold</span>
+      <span class="k"><i class="swatch" style="background:var(--mint)"></i> Update to review</span>
+      <span class="k"><i class="swatch" style="background:#8FA3BA"></i> Asleep now</span>
+    </div>
+    <button class="btn" id="heatBtn">Density off</button>
+  </footer>
+  <aside class="card" id="card"></aside>
+</section>
+
+<nav class="rail">
+  <div class="tabs" id="tabs"></div>
+  <div class="searchWrap">
+    <input class="search" id="search" placeholder="Search name, city, tag…" />
+    <button class="btn" id="addBtn" title="Add a person">+ Add</button>
+  </div>
+  <div class="reconnect" id="reconnect"></div>
+  <div class="railBody" id="railBody"></div>
+</nav>
+
+<div class="modal" id="modal">
+  <div class="sheet">
+    <header>
+      <div>
+        <div class="eyebrow">Region view</div>
+        <h2 id="cityName"></h2>
+        <div class="stats" id="cityMeta" style="margin-top:7px"></div>
+      </div>
+      <button class="btn" id="cityClose">Back to globe</button>
+    </header>
+    <div class="body"><svg id="cityMap" height="210"></svg><div id="cityList"></div></div>
+  </div>
+</div>
+
+<div class="gate" id="gate"><div class="gateBox" id="gateBox"></div></div>
+<input type="file" id="fileIn" accept=".csv,.vcf,text/csv,text/vcard" style="display:none" />
+<div class="toast" id="toast"></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
