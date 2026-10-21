@@ -37,6 +37,9 @@ Double-click run-contlas.bat. It serves the folder on http://localhost:8143 usin
 8. Trips: TRIPS tab → city + dates → Save. Shows everyone within 200 km and birthdays during the trip. A week before, a banner appears at the top of the rail and the calendar feed gets a "City in 1 week" event (re-deploy birthdays-ics after updating).
 9. Social tracking: on a card → Edit → Instagram / LinkedIn / Facebook and "Last seen in" + date. Last seen wins: the pin moves there and trips use it; Lives is kept on the card.
 
+## Places from Setu
+When signed in, the globe also shows Setu's hubs (yellow diamonds) from `setu_hubs` / `setu_spots` in the same Supabase project. Click one for its shops, who suggested them, and people within 5 km. Footer → Places on/off. Contlas only reads these tables; Setu owns them.
+
 ## Modes
 - Demo: no config → "Try the demo first" keeps data in the browser only.
 - Supabase: with config → email/password accounts, data private per user via row-level security.
