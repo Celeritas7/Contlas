@@ -11,9 +11,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmtDate = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear(); };
 const TABS = [{ id: "city", label: "CITY" }, { id: "warm", label: "WARM" }, { id: "bday", label: "BDAY" }, { id: "trip", label: "TRIPS" }, { id: "sync", label: "SYNC" }, { id: "az", label: "A–Z" }];
 
-let D = { contacts: [], conversations: [], events: [], snoozes: [], trips: [] };
+let D = { contacts: [], conversations: [], events: [], snoozes: [], trips: [], hubs: [], spots: [] };
 let sb = null, session = null, started = false;
-const S = { feedUrl: "", openTrip: null, tripDraft: { city: "", from: "", to: "" }, bdDraft: "", rot: [10, 0], idle: true, selected: null, hover: null, query: "", tab: "city", heat: false, edits: {}, editing: false, logOpen: false, logChannel: "Call", land: null, busy: "", lastImport: null };
+const S = { places: true, hub: null, feedUrl: "", openTrip: null, tripDraft: { city: "", from: "", to: "" }, bdDraft: "", rot: [10, 0], idle: true, selected: null, hover: null, query: "", tab: "city", heat: false, edits: {}, editing: false, logOpen: false, logChannel: "Call", land: null, busy: "", lastImport: null };
 
 let toastT;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 3600); }
@@ -29,6 +29,9 @@ const Store = {
       const bad = r.find((x) => x.error); if (bad) throw bad.error;
       D = { contacts: r[0].data, conversations: r[1].data, events: r[2].data, snoozes: r[3].data, trips: [] };
       const t = await sb.from("trips").select("*"); if (t.error) console.warn("trips table missing — re-run schema.sql", t.error); else D.trips = t.data;
+      // Setu's hubs and spots (same project). Optional: Contlas works without them.
+      const [h, sp] = await Promise.all([sb.from("setu_hubs").select("*").is("deleted_at", null), sb.from("setu_spots").select("*").is("deleted_at", null)]);
+      D.hubs = h.error ? [] : h.data || []; D.spots = sp.error ? [] : sp.data || [];
     } else {
       const raw = localStorage.getItem(LS_DATA);
       D = raw ? JSON.parse(raw) : seedDemo(); D.trips = D.trips || [];
@@ -167,7 +170,8 @@ async function applyGeo(patch) {
 /* ---------- globe ---------- */
 const svg = d3.select("#globe");
 let R = 200, projection = d3.geoOrthographic().clipAngle(90), geoPath = d3.geoPath(projection), dragMoved = false;
-const gSphere = svg.append("g"), gLand = svg.append("g"), gGrat = svg.append("g"), gHeat = svg.append("g"), gLinks = svg.append("g"), gPins = svg.append("g");
+const gSphere = svg.append("g"), gLand = svg.append("g"), gGrat = svg.append("g"), gHeat = svg.append("g"), gLinks = svg.append("g"), gPlaces = svg.append("g"), gPins = svg.append("g");
+const SETU_URL = "https://celeritas7.github.io/Setu/";
 const graticule = d3.geoGraticule10();
 function sizeGlobe() {
   const box = $("globeWrap").getBoundingClientRect(), size = Math.max(180, Math.min(box.width, box.height) - 8);
@@ -196,6 +200,15 @@ function drawGlobe() {
   gLinks.selectAll("line").data(links, (l) => l.k).join("line")
     .attr("x1", (l) => l.a[0]).attr("y1", (l) => l.a[1]).attr("x2", (l) => l.b[0]).attr("y2", (l) => l.b[1])
     .attr("stroke", (l) => l.stroke).attr("stroke-width", 1.1).attr("stroke-dasharray", (l) => l.dash);
+
+  // Setu hubs: yellow diamonds. Click opens the hub card.
+  const hubs = S.places ? (D.hubs || []).filter((h) => h.lat != null && h.lng != null && visible({ lat: h.lat, lon: h.lng })) : [];
+  const hp = gPlaces.selectAll("g.hub").data(hubs, (h) => h.id).join((enter) => { const g = enter.append("g").attr("class", "hub").style("cursor", "pointer"); g.append("rect"); g.append("title"); return g; });
+  hp.attr("transform", (h) => { const p = projection([h.lng, h.lat]); return "translate(" + p[0] + "," + p[1] + ") rotate(45)"; })
+    .on("click", (e, h) => { if (!dragMoved) selectHub(h.id); });
+  hp.select("rect").attr("x", (h) => (S.hub === h.id ? -6 : -4.5)).attr("y", (h) => (S.hub === h.id ? -6 : -4.5)).attr("width", (h) => (S.hub === h.id ? 12 : 9)).attr("height", (h) => (S.hub === h.id ? 12 : 9))
+    .attr("fill", "#E8A000").attr("stroke", (h) => (S.hub === h.id ? "#F6F1E5" : "rgba(13,20,32,0.7)")).attr("stroke-width", 1.2);
+  hp.select("title").text((h) => h.name + " · " + spotsOf(h).length + " to visit (Setu)");
 
   const shown = all.filter(visible).map((c) => {
     const p = projection([c.lon, c.lat]), on = matches(c), isSel = sel && sel.id === c.id, isHov = S.hover === c.id;
@@ -243,8 +256,29 @@ function glideTo(c) {
 }
 
 /* ---------- selection ---------- */
-function select(id) { if (S.editing) return commitEdits().then(() => select(id)); S.selected = id; S.editing = false; S.logOpen = false; S.edits = {}; glideTo(byId(id)); renderAll(); }
-function deselect() { S.selected = null; S.editing = false; S.logOpen = false; S.edits = {}; renderAll(); }
+const spotsOf = (h) => (D.spots || []).filter((x) => x.hub_id === h.id && x.status !== "skip" && x.accepted !== false);
+function selectHub(id) { if (S.editing) return commitEdits().then(() => selectHub(id)); const h = (D.hubs || []).find((x) => x.id === id); if (!h) return;
+  S.selected = null; S.hub = id; S.logOpen = false; S.edits = {}; glideTo({ placed: true, lat: h.lat, lon: h.lng }); renderAll(); }
+function renderHubCard() {
+  const card = $("card"), h = (D.hubs || []).find((x) => x.id === S.hub); if (!h) { S.hub = null; card.classList.remove("open"); return; }
+  const sp = (D.spots || []).filter((x) => x.hub_id === h.id && x.status !== "skip"), at = { lat: h.lat, lon: h.lng };
+  const near = people().filter((c) => c.placed && km(at, c) <= 5).sort((a, b) => km(at, a) - km(at, b));
+  const by = (x) => { const m = x.suggested_contact && byId(x.suggested_contact); return m ? '<button class="chip" data-go="' + m.id + '">from ' + esc(m.name) + "</button>" : x.suggested_by ? '<span class="lab">from ' + esc(x.suggested_by) + "</span>" : ""; };
+  const pend = sp.filter((x) => x.accepted === false).length;
+  card.innerHTML = '<div class="cardScroll">' +
+    '<div class="cardHead"><div class="row1"><button class="btn tiny" id="cardBack">← Close</button><a class="btn tiny" style="margin-left:auto" target="_blank" rel="noopener" href="' + SETU_URL + '">Open in Setu</a></div>' +
+      '<div class="lab" style="margin-top:14px;color:var(--brown)">Hub · from Setu</div><h2>' + esc(h.name) + "</h2>" +
+      (h.notes ? '<div class="role">' + esc(h.notes) + "</div>" : "") +
+      '<div class="meta"><i class="swatch" style="background:#E8A000"></i> ' + (sp.length - pend) + " to visit" + (pend ? " · " + pend + " suggested, accept in Setu" : "") + "</div></div>" +
+    '<div class="sect">' + (sp.length ? sp.map((x) => '<div><div class="lab" style="color:' + (x.accepted === false ? "var(--ink3)" : "var(--brown)") + '">' + esc(x.kind) + " · " + esc(x.accepted === false ? "suggested" : x.status === "done" ? "been" : "to visit") + '</div><div class="val" style="font-size:17px">' + esc(x.name) + "</div>" +
+      (x.why ? "<p>" + esc(x.why) + "</p>" : "") + '<div class="chips">' + by(x) + (x.address ? '<span class="lab">' + esc(x.address) + "</span>" : "") + "</div></div>").join("") : "<p>Nothing saved here yet.</p>") + "</div>" +
+    '<div class="sect" style="border-bottom:none"><div><div class="lab">People within 5 km</div>' +
+      (near.length ? '<div class="chips">' + near.map((c) => '<button class="chip" data-go="' + c.id + '">' + esc(c.name) + "</button>").join("") + "</div>" : "<p>No one you know lives near " + esc(h.name) + ".</p>") + "</div></div>" +
+    "</div>";
+  card.classList.add("open"); card.querySelector(".cardScroll").scrollTop = 0;
+}
+function select(id) { if (S.editing) return commitEdits().then(() => select(id)); S.hub = null; S.selected = id; S.editing = false; S.logOpen = false; S.edits = {}; glideTo(byId(id)); renderAll(); }
+function deselect() { S.hub = null; S.selected = null; S.editing = false; S.logOpen = false; S.edits = {}; renderAll(); }
 function syncHover() { document.querySelectorAll(".prow").forEach((el) => el.classList.toggle("hov", S.hover != null && el.dataset.id === S.hover)); }
 function renderAll() { renderRail(); renderCard(); drawGlobe(); renderStats(); }
 
@@ -254,7 +288,7 @@ function renderStats() {
   const who = Store.mode === "supabase" ? (session && session.user ? session.user.email : "") : "demo · saved in this browser";
   $("stats").innerHTML =
     (S.busy ? "<span style='color:var(--mintInk)'>" + esc(S.busy) + "</span>" : "") +
-    "<span>" + all.length + " contacts · " + cities(all).length + " cities" + (un ? " · <a id='unplacedLink'>" + un + " unplaced</a>" : "") + "</span>" +
+    "<span>" + all.length + " contacts · " + cities(all).length + " cities" + (un ? " · <a id='unplacedLink'>" + un + " unplaced</a>" : "") + ((D.hubs || []).length ? " · " + D.hubs.length + " hubs" : "") + "</span>" +
     "<span>" + esc(who) + "</span>" +
     (Store.mode === "supabase" ? "<a id='signOut'>Sign out</a>" : "<a id='connectLink'>" + (LOCKED ? "Sign in" : "Connect Supabase") + "</a>");
 }
@@ -346,6 +380,7 @@ function renderRail() {
 /* ---------- card ---------- */
 function renderCard() {
   const card = $("card");
+  if (S.hub && !S.selected) return renderHubCard();
   if (!S.selected) { card.classList.remove("open"); return; }
   const isNew = S.selected === NEW;
   const c = isNew ? enrich({ id: NEW, name: "", languages: [], tags: [], circle: [], created_at: new Date().toISOString() }) : byId(S.selected);
@@ -574,6 +609,7 @@ function openCity(city) {
 $("tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) { S.tab = b.dataset.tab; renderRail(); } });
 $("search").addEventListener("input", (e) => { S.query = e.target.value; renderRail(); drawGlobe(); });
 $("addBtn").addEventListener("click", () => { if (S.editing) return; S.selected = NEW; S.editing = true; S.logOpen = false; S.edits = {}; renderCard(); });
+$("placesBtn").addEventListener("click", () => { S.places = !S.places; $("placesBtn").textContent = "Places " + (S.places ? "on" : "off"); $("placesBtn").classList.toggle("on", S.places); if (!S.places && S.hub) deselect(); drawGlobe(); });
 $("heatBtn").addEventListener("click", () => { S.heat = !S.heat; $("heatBtn").textContent = "Density " + (S.heat ? "on" : "off"); $("heatBtn").classList.toggle("on", S.heat); drawGlobe(); });
 $("stats").addEventListener("click", (e) => {
   if (e.target.id === "signOut") run(async () => { await sb.auth.signOut(); });
@@ -704,7 +740,7 @@ async function boot() {
   if (CFG.supabaseUrl && CFG.supabaseAnonKey && !demo && window.supabase) {
     sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey); Store.mode = "supabase";
     const { data } = await sb.auth.getSession(); session = data.session;
-    sb.auth.onAuthStateChange((ev, s) => { const had = !!session; session = s; if (s && !had) start(); if (!s && had) { D = { contacts: [], conversations: [], events: [], snoozes: [], trips: [] }; started = false; renderAll(); showGate("signin"); } });
+    sb.auth.onAuthStateChange((ev, s) => { const had = !!session; session = s; if (s && !had) start(); if (!s && had) { D = { contacts: [], conversations: [], events: [], snoozes: [], trips: [], hubs: [], spots: [] }; S.hub = null; started = false; renderAll(); showGate("signin"); } });
     return session ? start() : showGate("signin");
   }
   if (!demo) return showGate("setup");
