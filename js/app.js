@@ -739,6 +739,7 @@ async function boot() {
   const demo = localStorage.getItem(LS_DEMO) === "1";
   if (CFG.supabaseUrl && CFG.supabaseAnonKey && !demo && window.supabase) {
     sb = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey); Store.mode = "supabase";
+    if (window.AkatsukiBroadcast) window.AkatsukiBroadcast(sb, "contlas").start();
     const { data } = await sb.auth.getSession(); session = data.session;
     sb.auth.onAuthStateChange((ev, s) => { const had = !!session; session = s; if (s && !had) start(); if (!s && had) { D = { contacts: [], conversations: [], events: [], snoozes: [], trips: [], hubs: [], spots: [] }; S.hub = null; started = false; renderAll(); showGate("signin"); } });
     return session ? start() : showGate("signin");
